@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Teacher Portal</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Create Lesson Plan</h1>
+        
+        {% if token %}
+        <div class="success">
+            <h3>Lesson Created!</h3>
+            <p>Access Token: <strong>{{ token }}</strong></p>
+            <p>Share this with students: {{ url_for('student_interface', _external=True) }}</p>
+        </div>
+        {% endif %}
+        
+        {% if not topic %}
+        <form method="POST">
+            <label>Topic:</label>
+            <input type="text" name="topic" required>
+            <button type="submit">Generate Plan</button>
+        </form>
+        {% else %}
+        <div class="lesson-plan">
+            <h2>{{ topic }}</h2>
+            <h3>Objectives</h3>
+            <ul>
+                {% for obj in objectives %}
+                <li>{{ obj }}</li>
+                {% endfor %}
+            </ul>
+            
+            <h3>Teaching Workflow</h3>
+            <ol>
+                {% for step in workflow %}
+                <li>{{ step }}</li>
+                {% endfor %}
+            </ol>
+            
+            <h3>Assessment</h3>
+            <ol>
+                {% for q in assessment %}
+                <li>{{ q.question }} (Answer: {{ q.answer }})</li>
+                {% endfor %}
+            </ol>
+            
+            <form method="POST">
+                <label>Feedback/Modifications:</label>
+                <textarea name="feedback" placeholder="What would you like to change?"></textarea>
+                <button type="submit">Update Plan</button>
+                <button type="submit" name="feedback" value="finalize">Finalize Lesson</button>
+            </form>
+        </div>
+        {% endif %}
+    </div>
+</body>
+</html>
