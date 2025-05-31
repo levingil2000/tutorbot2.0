@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Student Chat</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="container">
+    <h2>AI Tutor</h2>
+    <label>Enter Access Token:</label>
+    <input type="text" id="access_token">
+    <div id="chat-box" style="height:300px; overflow-y:auto; border:1px solid #ccc; padding:10px; margin-top:10px;"></div>
+    <input type="text" id="student-input" placeholder="Type a message...">
+    <button onclick="sendMessage()">Send</button>
+  </div>
+
+  <script>
+    async function sendMessage() {
+      const token = document.getElementById('access_token').value;
+      const msg = document.getElementById('student-input').value;
+      if (!msg || !token) return;
+
+      document.getElementById('chat-box').innerHTML += `<p><strong>You:</strong> ${msg}</p>`;
+
+      const res = await fetch('/api/student_chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ access_token: token, message: msg })
+      });
+
+      const data = await res.json();
+      document.getElementById('chat-box').innerHTML += `<p><strong>AI:</strong> ${data.response}</p>`;
+      document.getElementById('student-input').value = '';
+      document.getElementById('chat-box').scrollTop = document.getElementById('chat-box').scrollHeight;
+    }
+  </script>
+</body>
+</html>
