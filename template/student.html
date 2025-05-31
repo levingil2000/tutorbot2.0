@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Student Portal</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script>
+        function sendMessage() {
+            const input = document.getElementById('message');
+            if (input.value.trim() !== '') {
+                document.forms['chatForm'].submit();
+            }
+        }
+    </script>
+</head>
+<body>
+    <div class="container">
+        {% if completed %}
+        <div class="results">
+            <h2>Lesson Completed!</h2>
+            <p>Assessment Score: {{ score }}</p>
+            <p>Your Rating: {{ rating }}/5</p>
+            <a href="/student">New Lesson</a>
+        </div>
+        {% elif conversation %}
+        <div class="chat-container">
+            <div class="chat-header">
+                <h2>AI Tutor Session</h2>
+                <p>Token: {{ token }}</p>
+            </div>
+            
+            <div class="chat-messages">
+                {% for sender, message in conversation %}
+                <div class="message {{ sender }}">
+                    {{ message }}
+                </div>
+                {% endfor %}
+            </div>
+            
+            <form method="POST" name="chatForm" class="chat-input">
+                <input type="text" id="message" name="message" autocomplete="off" autofocus>
+                <button type="button" onclick="sendMessage()">Send</button>
+            </form>
+        </div>
+        {% else %}
+        <h1>Join Learning Session</h1>
+        <form method="POST">
+            <label>Access Token:</label>
+            <input type="text" name="token" required>
+            <button type="submit">Start Learning</button>
+        </form>
+        {% endif %}
+    </div>
+</body>
+</html>
