@@ -302,4 +302,4 @@ def analytics(token):
 
 # Main entry point
 if __name__ == '__main__':
-    app.run(debug=True)  # Run in debug mode for easier troubleshooting
+    app.run(debug=False)  # Run in debug mode for easier troubleshooting
