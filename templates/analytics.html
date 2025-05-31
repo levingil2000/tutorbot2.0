@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Lesson Analytics</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Teaching Analytics</h1>
+        <h2>{{ topic }}</h2>
+        <p>Token: {{ token }}</p>
+        
+        <table>
+            <tr>
+                <th>Session ID</th>
+                <th>Date</th>
+                <th>Duration</th>
+                <th>Rating</th>
+                <th>Score</th>
+            </tr>
+            {% for s in sessions %}
+            <tr>
+                <td>{{ s.session_id }}</td>
+                <td>{{ s.date }}</td>
+                <td>{{ s.duration }}</td>
+                <td>{{ s.rating }}/5</td>
+                <td>{{ s.score }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+        
+        <a href="/">Back to Home</a>
+    </div>
+</body>
+</html>
