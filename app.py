@@ -36,8 +36,8 @@ if not HF_TOKEN:
 # - "mistralai/Mistral-7B-Instruct-v0.3" (another good general option)
 # - "Qwen/Qwen2-7B-Instruct" (Qwen models are often very capable)
 # Let's use Llama-3-8b-instruct as a strong default for both teacher and student.
-HF_MODEL_TEACHER = "meta-llama/Llama-3-8b-instruct"
-HF_MODEL_STUDENT = "meta-llama/Llama-3-8b-instruct" # Can be the same or different
+HF_MODEL_TEACHER = "meta-llama/Meta-Llama-3-8B-Instruct"
+HF_MODEL_STUDENT = "meta-llama/Meta-Llama-3-8B-Instruct"
 
 hf_client_teacher = InferenceClient(model=HF_MODEL_TEACHER, token=HF_TOKEN)
 hf_client_student = InferenceClient(model=HF_MODEL_STUDENT, token=HF_TOKEN)
