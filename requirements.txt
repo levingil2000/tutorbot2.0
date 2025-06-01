@@ -3,3 +3,4 @@ python-dotenv
 google-generativeai
 uuid
 gunicorn
+huggingface_hub
