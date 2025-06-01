@@ -34,11 +34,6 @@ hf_client_teacher = InferenceClient(model=HF_MODEL_TEACHER, token=HF_TOKEN, base
 hf_client_student = InferenceClient(model=HF_MODEL_STUDENT, token=HF_TOKEN, base_url=HF_INFERENCE_API_BASE_URL)
 
 
-hf_client_teacher = InferenceClient(model=HF_MODEL_TEACHER, token=HF_TOKEN)
-hf_client_student = InferenceClient(model=HF_MODEL_STUDENT, token=HF_TOKEN)
-# ---------------------------------------------------
-
-
 # In-memory storage for lessons and sessions (replace with database in production)
 lessons = {}  # Stores all created lessons by access token
 sessions = {}  # Stores active student sessions by session ID
