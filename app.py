@@ -1,43 +1,38 @@
+# app.py
 from flask import Flask, render_template, request, session, redirect, url_for
-# import google.generativeai as genai # REMOVE OR COMMENT OUT THIS LINE
 import os
 import uuid
 import json
 import datetime
 from dotenv import load_dotenv
 
-# Import Hugging Face InferenceClient
-from huggingface_hub import InferenceClient
+from huggingface_hub import InferenceClient # Keep this import
 
 # Load environment variables from .env file
 load_dotenv()
 
 # Initialize Flask application
 app = Flask(__name__)
-app.secret_key = os.urandom(24)  # Generate a random secret key for session security
-app.config['SESSION_TYPE'] = 'filesystem'  # Configure session storage type
-
-# --- OLD GEMINI CONFIGURATION (REMOVE/COMMENT OUT) ---
-# genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
-# model = genai.GenerativeModel('gemini-1.5-flash')
-# ---------------------------------------------------
+app.secret_key = os.urandom(24)
+app.config['SESSION_TYPE'] = 'filesystem'
 
 # --- NEW HUGGING FACE CONFIGURATION ---
-# Get Hugging Face API token from environment
 HF_TOKEN = os.getenv('HF_TOKEN')
 if not HF_TOKEN:
     raise ValueError("HF_TOKEN environment variable not set. Please set it in your .env file.")
 
-# Initialize the Hugging Face InferenceClient
-# Choose a suitable instruction-tuned model.
-# Good options:
-# - "HuggingFaceH4/zephyr-7b-beta" (general purpose, instruction-following)
-# - "meta-llama/Llama-3-8b-instruct" (strong all-rounder, excellent for chat)
-# - "mistralai/Mistral-7B-Instruct-v0.3" (another good general option)
-# - "Qwen/Qwen2-7B-Instruct" (Qwen models are often very capable)
-# Let's use Llama-3-8b-instruct as a strong default for both teacher and student.
-HF_MODEL_TEACHER = "meta-llama/Meta-Llama-3-8B-Instruct"
-HF_MODEL_STUDENT = "meta-llama/Meta-Llama-3-8B-Instruct"
+# IMPORTANT: Explicitly set the base_url to Hugging Face's standard Inference API
+HF_INFERENCE_API_BASE_URL = "https://api-inference.huggingface.co/models"
+
+# --- CHANGE MADE HERE: USING HuggingFaceH4/zephyr-7b-beta ---
+# This model is generally very accessible on the public Inference API.
+HF_MODEL_TEACHER = "HuggingFaceH4/zephyr-7b-beta"
+HF_MODEL_STUDENT = "HuggingFaceH4/zephyr-7b-beta"
+
+# Pass the base_url to ensure it hits the correct endpoint
+hf_client_teacher = InferenceClient(model=HF_MODEL_TEACHER, token=HF_TOKEN, base_url=HF_INFERENCE_API_BASE_URL)
+hf_client_student = InferenceClient(model=HF_MODEL_STUDENT, token=HF_TOKEN, base_url=HF_INFERENCE_API_BASE_URL)
+
 
 hf_client_teacher = InferenceClient(model=HF_MODEL_TEACHER, token=HF_TOKEN)
 hf_client_student = InferenceClient(model=HF_MODEL_STUDENT, token=HF_TOKEN)
