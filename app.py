@@ -119,7 +119,7 @@ def lesson_plan():
                 messages=messages,
                 max_tokens=1500, # Increased tokens for detailed lesson plans
                 temperature=0.7,
-                response_model=None # Don't enforce a specific response model for the raw text
+                # response_model=None # Don't enforce a specific response model for the raw text
             )
             # Extract text from the response object
             response_text = hf_response.choices[0].message.content
@@ -179,7 +179,7 @@ def lesson_plan():
                     messages=messages,
                     max_tokens=1500, # Keep enough tokens for the full modified plan
                     temperature=0.7,
-                    response_model=None
+                    # response_model=None
                 )
                 response_text = hf_response.choices[0].message.content
             except Exception as e:
