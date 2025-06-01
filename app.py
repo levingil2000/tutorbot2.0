@@ -1,11 +1,13 @@
-# app.py
 from flask import Flask, render_template, request, session, redirect, url_for
-import google.generativeai as genai
+# import google.generativeai as genai # REMOVE OR COMMENT OUT THIS LINE
 import os
 import uuid
 import json
 import datetime
 from dotenv import load_dotenv
+
+# Import Hugging Face InferenceClient
+from huggingface_hub import InferenceClient
 
 # Load environment variables from .env file
 load_dotenv()
@@ -15,16 +17,40 @@ app = Flask(__name__)
 app.secret_key = os.urandom(24)  # Generate a random secret key for session security
 app.config['SESSION_TYPE'] = 'filesystem'  # Configure session storage type
 
-# Configure Gemini AI with API key from environment
-genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
-# Initialize the Gemini 1.5 Flash model
-model = genai.GenerativeModel('gemini-1.5-flash')
+# --- OLD GEMINI CONFIGURATION (REMOVE/COMMENT OUT) ---
+# genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
+# model = genai.GenerativeModel('gemini-1.5-flash')
+# ---------------------------------------------------
+
+# --- NEW HUGGING FACE CONFIGURATION ---
+# Get Hugging Face API token from environment
+HF_TOKEN = os.getenv('HF_TOKEN')
+if not HF_TOKEN:
+    raise ValueError("HF_TOKEN environment variable not set. Please set it in your .env file.")
+
+# Initialize the Hugging Face InferenceClient
+# Choose a suitable instruction-tuned model.
+# Good options:
+# - "HuggingFaceH4/zephyr-7b-beta" (general purpose, instruction-following)
+# - "meta-llama/Llama-3-8b-instruct" (strong all-rounder, excellent for chat)
+# - "mistralai/Mistral-7B-Instruct-v0.3" (another good general option)
+# - "Qwen/Qwen2-7B-Instruct" (Qwen models are often very capable)
+# Let's use Llama-3-8b-instruct as a strong default for both teacher and student.
+HF_MODEL_TEACHER = "meta-llama/Llama-3-8b-instruct"
+HF_MODEL_STUDENT = "meta-llama/Llama-3-8b-instruct" # Can be the same or different
+
+hf_client_teacher = InferenceClient(model=HF_MODEL_TEACHER, token=HF_TOKEN)
+hf_client_student = InferenceClient(model=HF_MODEL_STUDENT, token=HF_TOKEN)
+# ---------------------------------------------------
+
 
 # In-memory storage for lessons and sessions (replace with database in production)
 lessons = {}  # Stores all created lessons by access token
 sessions = {}  # Stores active student sessions by session ID
 
-# System prompts for Gemini AI
+# System prompts for Gemini AI (these can remain the same)
+# NOTE: For Hugging Face chat models, these system prompts are crucial.
+# You'll pass them as part of the 'messages' list in the chat_completion call.
 TEACHER_PROMPT = """You're an AI lesson planner. Given a topic, generate:
 1. Learning objectives (3-5 bullet points)
 2. Teaching workflow (step-by-step)
@@ -76,21 +102,45 @@ def lesson_plan():
     
     # Generate initial lesson plan if not exists
     if not session.get('lesson_data'):
-        # Generate lesson content using Gemini AI
-        response = model.generate_content(TEACHER_PROMPT + "\nTopic: " + session['topic'])
+        # --- ORIGINAL GEMINI CALL ---
+        # response = model.generate_content(TEACHER_PROMPT + "\nTopic: " + session['topic'])
+        # ----------------------------
+
+        # --- NEW HUGGING FACE CALL for Teacher Model ---
+        try:
+            # We use chat_completion because it handles system prompts well.
+            # The prompt is constructed to guide the LLM to produce JSON.
+            messages = [
+                {"role": "system", "content": TEACHER_PROMPT},
+                {"role": "user", "content": f"Generate a lesson plan for the topic: {session['topic']}"}
+            ]
+            
+            hf_response = hf_client_teacher.chat_completion(
+                messages=messages,
+                max_tokens=1500, # Increased tokens for detailed lesson plans
+                temperature=0.7,
+                response_model=None # Don't enforce a specific response model for the raw text
+            )
+            # Extract text from the response object
+            response_text = hf_response.choices[0].message.content
+        except Exception as e:
+            app.logger.error(f"Hugging Face Teacher AI generation error: {str(e)}")
+            response_text = "{\"objectives\":[\"Error generating lesson. Please try again or refine your topic.\"], \"workflow\":[\"Start with basic concepts\"], \"assessment\":[{\"question\": \"Sample question?\", \"answer\": \"Sample answer\"}], \"practice_quiz\":[]}"
+        # -----------------------------------------------
+
         try:
             # Attempt to parse AI response as JSON
-            session['lesson_data'] = json.loads(response.text)
+            session['lesson_data'] = json.loads(response_text)
         except json.JSONDecodeError:
             # Fallback if JSON parsing fails
+            app.logger.error(f"Failed to parse lesson JSON from HF response: {response_text}")
             session['lesson_data'] = {
                 "objectives": ["Error in lesson generation. Please provide more specific feedback."],
                 "workflow": ["Start with basic concepts"],
                 "assessment": [{"question": "Sample question?", "answer": "Sample answer"}],
                 "practice_quiz": []
             }
-            app.logger.error(f"Failed to parse lesson JSON: {response.text}")
-    
+            
     # Process teacher feedback
     if request.method == 'POST':
         feedback = request.form.get('feedback', '')
@@ -112,23 +162,44 @@ def lesson_plan():
         
         # Handle lesson modification request
         if feedback.strip():
-            # Regenerate lesson plan with teacher feedback
+            # --- ORIGINAL GEMINI CALL ---
+            # response = model.generate_content(
+            #     f"Modify lesson plan based on: {feedback}\nCurrent plan: {json.dumps(session['lesson_data'])}"
+            # )
+            # ----------------------------
+
+            # --- NEW HUGGING FACE CALL for Teacher Model Modification ---
             try:
-                response = model.generate_content(
-                    f"Modify lesson plan based on: {feedback}\nCurrent plan: {json.dumps(session['lesson_data'])}"
+                # The prompt now includes the modification request and the current lesson.
+                messages = [
+                    {"role": "system", "content": TEACHER_PROMPT + "\nI need the output in JSON format only."},
+                    {"role": "user", "content": f"Modify this lesson plan based on the following feedback: '{feedback}'.\n\nHere is the current plan:\n{json.dumps(session['lesson_data'])}"}
+                ]
+                hf_response = hf_client_teacher.chat_completion(
+                    messages=messages,
+                    max_tokens=1500, # Keep enough tokens for the full modified plan
+                    temperature=0.7,
+                    response_model=None
                 )
+                response_text = hf_response.choices[0].message.content
+            except Exception as e:
+                app.logger.error(f"Hugging Face Teacher AI modification error: {str(e)}")
+                response_text = "{\"objectives\":[\"Error modifying lesson. Please try again.\"], \"workflow\":[\"Start with basic concepts\"], \"assessment\":[{\"question\": \"Sample question?\", \"answer\": \"Sample answer\"}], \"practice_quiz\":[]}"
+            # -------------------------------------------------------------
+
+            try:
                 # Update lesson data with modified version
-                session['lesson_data'] = json.loads(response.text)
+                session['lesson_data'] = json.loads(response_text)
             except json.JSONDecodeError:
-                app.logger.error(f"Failed to parse modified lesson JSON: {response.text}")
+                app.logger.error(f"Failed to parse modified lesson JSON from HF response: {response_text}")
                 # Keep previous version if parsing fails
-    
+
     # Render lesson plan for review
     return render_template('teacher.html', 
-                           topic=session['topic'],
-                           objectives=session['lesson_data']['objectives'],
-                           workflow=session['lesson_data']['workflow'],
-                           assessment=session['lesson_data']['assessment'])
+                            topic=session['topic'],
+                            objectives=session['lesson_data']['objectives'],
+                            workflow=session['lesson_data']['workflow'],
+                            assessment=session['lesson_data']['assessment'])
 
 # Route: Student Interface
 @app.route('/student', methods=['GET', 'POST'])
@@ -192,22 +263,48 @@ def tutor_chat():
         # Add student message to conversation history
         session_data['conversation'].append(("student", user_input))
         
-        # Generate context for AI
-        context = "\n".join([f"{role}: {msg}" for role, msg in session_data['conversation']])
-        
-        # Generate tutor response using Gemini
+        # --- ORIGINAL GEMINI CALL ---
+        # context = "\n".join([f"{role}: {msg}" for role, msg in session_data['conversation']])
+        # response = model.generate_content(
+        #     STUDENT_PROMPT + 
+        #     f"\nLesson Plan: {json.dumps(lesson)}" +
+        #     f"\nCurrent Step: {session_data['current_step']}" +
+        #     f"\n\n{context}"
+        # )
+        # tutor_response = response.text
+        # ----------------------------
+
+        # --- NEW HUGGING FACE CALL for Student Model ---
         try:
-            response = model.generate_content(
-                STUDENT_PROMPT + 
-                f"\nLesson Plan: {json.dumps(lesson)}" +
-                f"\nCurrent Step: {session_data['current_step']}" +
-                f"\n\n{context}"
+            # Construct messages list for chat_completion
+            # The system prompt should ideally be the first message.
+            # Then, reconstruct the conversation for the LLM.
+            messages = [
+                {"role": "system", "content": STUDENT_PROMPT +
+                                               f"\nLesson Plan: {json.dumps(lesson)}" +
+                                               f"\nCurrent Step: {session_data['current_step']}"}
+            ]
+            for role, msg in session_data['conversation']:
+                if role == "student": # Map your 'student' role to 'user' for HF models
+                    messages.append({"role": "user", "content": msg})
+                else: # Map your 'tutor' role to 'assistant' for HF models
+                    messages.append({"role": "assistant", "content": msg})
+            
+            # The last message from the user is what the model should respond to.
+            # No need to add the user_input again if it's already in conversation
+            # messages.append({"role": "user", "content": user_input}) # this is handled by the loop above
+
+            hf_response = hf_client_student.chat_completion(
+                messages=messages,
+                max_tokens=300, # Reasonable length for tutor responses
+                temperature=0.8, # Slightly higher temperature for more conversational responses
+                top_p=0.9
             )
-            tutor_response = response.text
+            tutor_response = hf_response.choices[0].message.content
         except Exception as e:
-            # Handle AI generation errors
-            app.logger.error(f"AI generation error: {str(e)}")
+            app.logger.error(f"Hugging Face Student AI generation error: {str(e)}")
             tutor_response = "I'm having trouble responding right now. Please try again."
+        # -----------------------------------------------
         
         # Add tutor response to conversation
         session_data['conversation'].append(("tutor", tutor_response))
@@ -217,7 +314,7 @@ def tutor_chat():
             # Mark workflow as completed
             session_data['current_step'] = len(lesson['workflow'])
         elif "practice quiz" in tutor_response.lower():
-            # Mark as quiz phase
+            # Mark as quiz phase (if you have specific logic for this)
             session_data['current_step'] = -1
         
         # Save updated session data
@@ -225,8 +322,8 @@ def tutor_chat():
     
     # Render chat interface
     return render_template('student.html', 
-                           conversation=session_data['conversation'],
-                           token=token)
+                            conversation=session_data['conversation'],
+                            token=token)
 
 # Route: Session Completion
 @app.route('/complete', methods=['POST'])
@@ -265,9 +362,9 @@ def complete_session():
     
     # Show completion page
     return render_template('student.html', 
-                           completed=True,
-                           score=session_data.get('assessment_score', 'N/A'),
-                           rating=session_data['rating'])
+                            completed=True,
+                            score=session_data.get('assessment_score', 'N/A'),
+                            rating=session_data['rating'])
 
 # Route: Analytics Page
 @app.route('/analytics/<token>')
@@ -296,10 +393,10 @@ def analytics(token):
     
     # Render analytics page
     return render_template('analytics.html', 
-                           token=token,
-                           topic=lesson_data['lesson_data']['objectives'][0],
-                           sessions=analytics_data)
+                            token=token,
+                            topic=lesson_data['lesson_data']['objectives'][0],
+                            sessions=analytics_data)
 
 # Main entry point
 if __name__ == '__main__':
-    app.run(debug=False)  # Run in debug mode for easier troubleshooting
+    app.run(debug=False)
