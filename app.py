@@ -201,7 +201,7 @@ def generate_tutor_response(conversation_history, lesson_data, current_step):
     
     return response
 
-# Routes remain the same but with improved AI integration
+# Routes
 
 @app.route('/')
 def index():
@@ -210,60 +210,76 @@ def index():
 @app.route('/teacher', methods=['GET', 'POST'])
 def teacher_interface():
     if request.method == 'POST':
-        session['topic'] = request.form['topic']
-        session['lesson_data'] = None
-        return redirect(url_for('lesson_plan'))
+        action = request.form.get('action')
+        
+        if action == 'create_topic':
+            # Step 1: User enters topic
+            session['topic'] = request.form['topic']
+            session['lesson_data'] = None
+            return redirect(url_for('lesson_plan'))
+        
+        elif action == 'modify_lesson':
+            # Step 2: Handle lesson modifications
+            feedback = request.form.get('feedback', '').strip()
+            if feedback and session.get('lesson_data'):
+                # Modify lesson based on feedback
+                modify_prompt = f"Modify this lesson plan based on feedback: '{feedback}'\n\nCurrent plan: {json.dumps(session['lesson_data'])}\n\nProvide the modified plan in JSON format:"
+                
+                try:
+                    response = hf_client.generate_text(modify_prompt, max_tokens=800)
+                    if '{' in response and '}' in response:
+                        json_start = response.find('{')
+                        json_end = response.rfind('}') + 1
+                        json_str = response[json_start:json_end]
+                        session['lesson_data'] = json.loads(json_str)
+                except Exception as e:
+                    app.logger.error(f"Failed to modify lesson: {str(e)}")
+            
+            return redirect(url_for('lesson_plan'))
+        
+        elif action == 'finalize_lesson':
+            # Step 3: Finalize and create access token
+            if session.get('lesson_data'):
+                token = str(uuid.uuid4())[:8]  # Shorter token for easier sharing
+                lessons[token] = {
+                    'lesson_data': session['lesson_data'],
+                    'topic': session.get('topic', 'Unknown Topic'),
+                    'created_at': datetime.datetime.now(),
+                    'sessions': []
+                }
+                
+                # Clear session data
+                session.pop('lesson_data', None)
+                session.pop('topic', None)
+                
+                return render_template('teacher.html', 
+                                     show_token=True,
+                                     token=token,
+                                     success_message=f"Lesson plan created successfully! Share this access code with students: {token}")
+            else:
+                return render_template('teacher.html', 
+                                     error="No lesson plan found. Please create a lesson plan first.")
+    
     return render_template('teacher.html')
 
-@app.route('/lesson_plan', methods=['GET', 'POST'])
+@app.route('/lesson_plan')
 def lesson_plan():
     if 'topic' not in session:
         return redirect(url_for('teacher_interface'))
     
-    # Generate initial lesson plan
+    # Generate initial lesson plan if not exists
     if not session.get('lesson_data'):
         app.logger.info(f"Generating lesson plan for: {session['topic']}")
         session['lesson_data'] = generate_lesson_plan(session['topic'])
-            
-    # Process teacher feedback
-    if request.method == 'POST':
-        feedback = request.form.get('feedback', '')
-        
-        if feedback.lower() == 'finalize':
-            token = str(uuid.uuid4())
-            lessons[token] = {
-                'lesson_data': session['lesson_data'],
-                'created_at': datetime.datetime.now(),
-                'sessions': []
-            }
-            session.pop('lesson_data', None)
-            session.pop('topic', None)
-            return render_template('teacher.html', token=token)
-        
-        if feedback.strip():
-            # Modify lesson based on feedback
-            modify_prompt = f"Modify this lesson plan based on feedback: '{feedback}'\n\nCurrent plan: {json.dumps(session['lesson_data'])}\n\nProvide the modified plan in JSON format:"
-            
-            try:
-                response = hf_client.generate_text(modify_prompt, max_tokens=800)
-                if '{' in response and '}' in response:
-                    json_start = response.find('{')
-                    json_end = response.rfind('}') + 1
-                    json_str = response[json_start:json_end]
-                    session['lesson_data'] = json.loads(json_str)
-            except Exception as e:
-                app.logger.error(f"Failed to modify lesson: {str(e)}")
-
-    return render_template('teacher.html', 
+    
+    return render_template('lesson_plan.html', 
                           topic=session['topic'],
-                          objectives=session['lesson_data']['objectives'],
-                          workflow=session['lesson_data']['workflow'],
-                          assessment=session['lesson_data']['assessment'])
+                          lesson_data=session['lesson_data'])
 
 @app.route('/student', methods=['GET', 'POST'])
 def student_interface():
     if request.method == 'POST':
-        token = request.form['token']
+        token = request.form['token'].strip()
         if token in lessons:
             session_id = str(uuid.uuid4())
             sessions[session_id] = {
@@ -276,7 +292,8 @@ def student_interface():
                 'rating': None
             }
             
-            welcome_msg = f"Hello! I'm your AI tutor. Today we'll learn about: {', '.join(lessons[token]['lesson_data']['objectives'])}. Are you ready to start?"
+            lesson_topic = lessons[token].get('topic', 'this topic')
+            welcome_msg = f"Hello! I'm your AI tutor. Today we'll learn about {lesson_topic}. Let's start with the learning objectives: {', '.join(lessons[token]['lesson_data']['objectives'])}. Are you ready to begin?"
             sessions[session_id]['conversation'].append(("tutor", welcome_msg))
             session['session_id'] = session_id
             return redirect(url_for('tutor_chat'))
@@ -308,18 +325,18 @@ def tutor_chat():
         session_data['conversation'].append(("tutor", tutor_response))
         sessions[session_id] = session_data
     
-    return render_template('student.html', 
+    return render_template('chat.html', 
                           conversation=session_data['conversation'],
-                          token=token)
+                          lesson_topic=lessons[token].get('topic', 'Unknown Topic'))
 
 @app.route('/complete', methods=['POST'])
 def complete_session():
     session_id = session.get('session_id')
-    if not session_id:
+    if not session_id or session_id not in sessions:
         return redirect(url_for('index'))
     
     session_data = sessions[session_id]
-    session_data['rating'] = request.form['rating']
+    session_data['rating'] = request.form.get('rating', 'Not rated')
     session_data['end_time'] = datetime.datetime.now()
     
     duration_minutes = (session_data['end_time'] - session_data['start_time']).seconds // 60
@@ -327,6 +344,7 @@ def complete_session():
     lessons[session_data['token']]['sessions'].append({
         'session_id': session_id,
         'start_time': session_data['start_time'],
+        'end_time': session_data['end_time'],
         'duration': duration_minutes,
         'rating': session_data['rating'],
         'score': session_data.get('assessment_score', 'N/A')
@@ -334,10 +352,10 @@ def complete_session():
     
     session.pop('session_id', None)
     
-    return render_template('student.html', 
-                          completed=True,
+    return render_template('completion.html', 
                           score=session_data.get('assessment_score', 'N/A'),
-                          rating=session_data['rating'])
+                          rating=session_data['rating'],
+                          duration=duration_minutes)
 
 @app.route('/analytics/<token>')
 def analytics(token):
@@ -356,10 +374,14 @@ def analytics(token):
             'score': sess['score']
         })
     
+    avg_rating = sum([float(s.get('rating', 0)) for s in lesson_data['sessions'] if s.get('rating', '0').isdigit()]) / max(len(lesson_data['sessions']), 1)
+    
     return render_template('analytics.html', 
                           token=token,
-                          topic=lesson_data['lesson_data']['objectives'][0],
-                          sessions=analytics_data)
+                          topic=lesson_data.get('topic', 'Unknown Topic'),
+                          sessions=analytics_data,
+                          total_sessions=len(analytics_data),
+                          avg_rating=round(avg_rating, 1))
 
 if __name__ == '__main__':
     app.run(debug=False)
